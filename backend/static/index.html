@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Huberman Lab Knowledge Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; letter-spacing: 0.02em; }
+    header .badge {
+      font-size: 0.7rem;
+      background: #4f46e5;
+      padding: 2px 8px;
+      border-radius: 999px;
+      margin-left: 4px;
+    }
+
+    /* ── Messages ── */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .msg-row {
+      display: flex;
+      flex-direction: column;
+      max-width: 780px;
+      width: 100%;
+    }
+    .msg-row.user { align-self: flex-end; align-items: flex-end; }
+    .msg-row.agent { align-self: flex-start; align-items: flex-start; }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 18px;
+      line-height: 1.55;
+      font-size: 0.92rem;
+      max-width: 100%;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg-row.user .bubble {
+      background: #4f46e5;
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg-row.agent .bubble {
+      background: #fff;
+      color: #111;
+      border: 1px solid #e5e7eb;
+      border-bottom-left-radius: 4px;
+    }
+
+    /* ── Evaluation badge ── */
+    .eval-badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      margin-bottom: 6px;
+      display: inline-block;
+    }
+    .eval-CONFIDENT       { background: #dcfce7; color: #166534; }
+    .eval-AMBIGUOUS       { background: #fef9c3; color: #854d0e; }
+    .eval-INSUFFICIENT_CONTEXT { background: #fee2e2; color: #991b1b; }
+
+    /* ── Sources ── */
+    .sources {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .sources-label {
+      font-size: 0.72rem;
+      color: #6b7280;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .source-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      color: #374151;
+    }
+    .source-meta {
+      font-size: 0.72rem;
+      color: #9ca3af;
+      margin-top: 4px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .score-bar {
+      display: inline-block;
+      width: 40px;
+      height: 4px;
+      background: #e5e7eb;
+      border-radius: 2px;
+      vertical-align: middle;
+      overflow: hidden;
+    }
+    .score-fill {
+      height: 100%;
+      background: #4f46e5;
+      border-radius: 2px;
+    }
+
+    /* ── Typing indicator ── */
+    .typing {
+      display: flex;
+      gap: 4px;
+      padding: 14px 16px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      border-bottom-left-radius: 4px;
+      width: fit-content;
+    }
+    .typing span {
+      width: 7px; height: 7px;
+      background: #9ca3af;
+      border-radius: 50%;
+      animation: blink 1.2s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
+      40% { opacity: 1; transform: scale(1); }
+    }
+
+    /* ── Input bar ── */
+    #input-bar {
+      background: #fff;
+      border-top: 1px solid #e5e7eb;
+      padding: 12px 16px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    #query {
+      flex: 1;
+      border: 1px solid #d1d5db;
+      border-radius: 999px;
+      padding: 10px 18px;
+      font-size: 0.92rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    #query:focus { border-color: #4f46e5; }
+    #send {
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      padding: 10px 22px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    #send:hover { background: #4338ca; }
+    #send:disabled { background: #a5b4fc; cursor: not-allowed; }
+
+    /* ── Empty state ── */
+    #empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #9ca3af;
+      gap: 10px;
+      pointer-events: none;
+    }
+    #empty .icon { font-size: 2.5rem; }
+    #empty p { font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Huberman Lab Knowledge Agent</h1>
+  <span class="badge">gemma3:4b · RAG</span>
+</header>
+
+<div id="messages">
+  <div id="empty">
+    <div class="icon">🎙️</div>
+    <p>Ask anything about the ingested podcast episodes.</p>
+  </div>
+</div>
+
+<div id="input-bar">
+  <input id="query" type="text" placeholder="e.g. What did Dr. Norton say about protein intake?" autocomplete="off" />
+  <button id="send">Send</button>
+</div>
+
+<script>
+  const messagesEl = document.getElementById('messages');
+  const queryEl    = document.getElementById('query');
+  const sendBtn    = document.getElementById('send');
+  const emptyEl    = document.getElementById('empty');
+
+  function hideEmpty() {
+    if (emptyEl) emptyEl.style.display = 'none';
+  }
+
+  function scrollBottom() {
+    messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'smooth' });
+  }
+
+  function addUserBubble(text) {
+    hideEmpty();
+    const row = document.createElement('div');
+    row.className = 'msg-row user';
+    row.innerHTML = `<div class="bubble">${escHtml(text)}</div>`;
+    messagesEl.appendChild(row);
+    scrollBottom();
+  }
+
+  function addTypingIndicator() {
+    const row = document.createElement('div');
+    row.className = 'msg-row agent';
+    row.id = 'typing-row';
+    row.innerHTML = `<div class="typing"><span></span><span></span><span></span></div>`;
+    messagesEl.appendChild(row);
+    scrollBottom();
+    return row;
+  }
+
+  function removeTyping() {
+    const el = document.getElementById('typing-row');
+    if (el) el.remove();
+  }
+
+  function renderEval(ev) {
+    const label = { CONFIDENT: '✓ Confident', AMBIGUOUS: '⚠ Ambiguous', INSUFFICIENT_CONTEXT: '✗ Insufficient context' }[ev] || ev;
+    return `<span class="eval-badge eval-${ev}">${label}</span>`;
+  }
+
+  function renderSources(sources) {
+    if (!sources || sources.length === 0) return '';
+    const cards = sources.map(s => {
+      const pct = Math.round((s.score || 0) * 100);
+      const ts  = `${fmtTime(s.timestamp_start)} – ${fmtTime(s.timestamp_end)}`;
+      const snippet = escHtml(s.text.slice(0, 120)) + (s.text.length > 120 ? '…' : '');
+      return `
+        <div class="source-card">
+          ${snippet}
+          <div class="source-meta">
+            <span>🎙 ${escHtml(shortTitle(s.source))}</span>
+            <span>⏱ ${ts}</span>
+            <span><span class="score-bar"><span class="score-fill" style="width:${pct}%"></span></span> ${pct}%</span>
+          </div>
+        </div>`;
+    }).join('');
+    return `<div class="sources"><div class="sources-label">Sources</div>${cards}</div>`;
+  }
+
+  function addAgentRow() {
+    const row = document.createElement('div');
+    row.className = 'msg-row agent';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    row.appendChild(bubble);
+    messagesEl.appendChild(row);
+    return { row, bubble };
+  }
+
+  // ── Send ──────────────────────────────────────────────────────────────────
+  async function send() {
+    const q = queryEl.value.trim();
+    if (!q) return;
+
+    queryEl.value = '';
+    sendBtn.disabled = true;
+
+    addUserBubble(q);
+    const typingRow = addTypingIndicator();
+
+    let evalResult = '';
+    let sources    = [];
+    let { row, bubble } = { row: null, bubble: null };
+
+    const es = new EventSource(`/chat/stream?q=${encodeURIComponent(q)}`);
+
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+
+      if (data.type === 'sources') {
+        evalResult = data.evaluation;
+        sources    = data.sources || [];
+
+        removeTyping();
+        const pair = addAgentRow();
+        row    = pair.row;
+        bubble = pair.bubble;
+        scrollBottom();
+
+      } else if (data.type === 'token') {
+        if (bubble) {
+          bubble.textContent += data.content;
+          scrollBottom();
+        }
+
+      } else if (data.type === 'done') {
+        es.close();
+        sendBtn.disabled = false;
+
+        // Append eval badge + sources below bubble
+        if (row) {
+          const meta = document.createElement('div');
+          meta.style.marginTop = '6px';
+          meta.innerHTML = renderEval(evalResult) + renderSources(sources);
+          row.appendChild(meta);
+          scrollBottom();
+        }
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      removeTyping();
+      sendBtn.disabled = false;
+      if (!bubble) {
+        const pair = addAgentRow();
+        pair.bubble.textContent = 'Error connecting to server. Is the backend running?';
+        pair.bubble.style.color = '#ef4444';
+      }
+    };
+  }
+
+  sendBtn.addEventListener('click', send);
+  queryEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) send(); });
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function fmtTime(sec) {
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return `${m}:${String(s).padStart(2,'0')}`;
+  }
+  function shortTitle(t) {
+    return t.length > 50 ? t.slice(0, 47) + '…' : t;
+  }
+</script>
+</body>
+</html>

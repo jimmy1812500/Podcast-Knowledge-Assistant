@@ -74,19 +74,20 @@ Each stored chunk has:
 ## CLI Usage
 
 ```bash
-cd backend
+# Install dependencies (run once from project root)
+uv sync
 
 # Dry run — list episodes without downloading
-python ingest_batch.py --dry-run
+uv run python backend/ingest_batch.py --dry-run
 
 # Ingest all 2025–2026 episodes (resume-safe)
-python ingest_batch.py --since 2025-01-01
+uv run python backend/ingest_batch.py --since 2025-01-01
 
 # Ingest a date range with a larger Whisper model
-python ingest_batch.py --since 2025-06-01 --until 2025-12-31 --model small
+uv run python backend/ingest_batch.py --since 2025-06-01 --until 2025-12-31 --model small
 
 # Single-episode test (diarization off, full episode)
-python ingest_batch_1.py
+uv run python backend/ingest_batch_1.py
 ```
 
 ---

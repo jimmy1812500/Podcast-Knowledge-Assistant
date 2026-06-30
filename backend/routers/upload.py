@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from etl.pipeline import run_etl
+from backend.etl.pipeline import run_etl
 
 router = APIRouter(tags=["upload"])
 

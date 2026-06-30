@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from routers import chat, podcast, upload
+from backend.routers import chat, podcast, upload
 
 app = FastAPI(
     title="Multi-Modal Knowledge Agent",

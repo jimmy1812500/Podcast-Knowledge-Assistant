@@ -16,8 +16,8 @@ from typing import Literal
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
 
-from etl.pipeline import run_etl
-from etl.podcast_rss import HUBERMAN_LAB_RSS, Episode, download_episodes, fetch_episodes
+from backend.etl.pipeline import run_etl
+from backend.etl.podcast_rss import HUBERMAN_LAB_RSS, Episode, download_episodes, fetch_episodes
 
 router = APIRouter(prefix="/ingest", tags=["podcast"])
 

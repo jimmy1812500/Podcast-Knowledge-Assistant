@@ -138,13 +138,15 @@ Served at **http://localhost:8000**:
 ## Running
 
 ```bash
+# Install dependencies (run once from project root)
+uv sync
+
 # Make sure Ollama is running with gemma3:4b
 ollama serve
 ollama pull gemma3:4b   # only needed on first run
 
-# Start the API server
-cd backend
-uvicorn main:app --reload --port 8000
+# Start the API server (from project root)
+uv run uvicorn backend.main:app --reload --port 8000
 
 # Open chat UI
 open http://localhost:8000

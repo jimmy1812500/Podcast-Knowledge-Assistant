@@ -24,14 +24,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from tqdm import tqdm
 
 # ── Validate env early ───────────────────────────────────────────────────────
+
 
 def _check_env() -> None:
     if not os.environ.get("HF_TOKEN"):
@@ -39,16 +39,20 @@ def _check_env() -> None:
         print("  To enable: accept https://huggingface.co/pyannote/speaker-diarization-3.1")
         print("  then: export HF_TOKEN=hf_...\n")
 
+
 # ── Lazy imports (after env check) ───────────────────────────────────────────
+
 
 def _import_etl():
     from etl.embeddings import COLLECTION_NAME, get_chroma
     from etl.pipeline import run_etl
     from etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
+
     return fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS
 
 
 # ── Already-indexed check ────────────────────────────────────────────────────
+
 
 def _already_indexed(chroma, collection_name: str, title: str) -> bool:
     """Return True if any chunk with source_file == title exists in ChromaDB."""
@@ -66,10 +70,12 @@ def _already_indexed(chroma, collection_name: str, title: str) -> bool:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _fmt_duration(seconds: float) -> str:
     h, rem = divmod(int(seconds), 3600)
     m, s = divmod(rem, 60)
     return f"{h}h {m:02d}m {s:02d}s" if h else f"{m}m {s:02d}s"
+
 
 def _log(msg: str) -> None:
     """Print a line above the tqdm bar without breaking it."""
@@ -78,14 +84,17 @@ def _log(msg: str) -> None:
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
-async def run(args: argparse.Namespace) -> None:
-    fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS = _import_etl()
 
-    since = datetime.fromisoformat(args.since).replace(tzinfo=timezone.utc)
-    until = datetime.fromisoformat(args.until).replace(tzinfo=timezone.utc) if args.until else None
+async def run(args: argparse.Namespace) -> None:
+    fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS = (
+        _import_etl()
+    )
+
+    since = datetime.fromisoformat(args.since).replace(tzinfo=UTC)
+    until = datetime.fromisoformat(args.until).replace(tzinfo=UTC) if args.until else None
     dest = Path(args.dest)
 
-    print(f"\nHuberman Lab batch ingest")
+    print("\nHuberman Lab batch ingest")
     print(f"  Range  : {since.date()} → {until.date() if until else 'today'}")
     print(f"  Model  : whisper-{args.model}")
     print(f"  Dest   : {dest}")
@@ -120,7 +129,6 @@ async def run(args: argparse.Namespace) -> None:
         dynamic_ncols=True,
         bar_format="{l_bar}{bar}| {n}/{total} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
     ) as pbar:
-
         for ep in episodes:
             pbar.set_description(ep.title[:45])
             pbar.set_postfix(done=done, skip=skipped, fail=failed)
@@ -165,13 +173,8 @@ async def run(args: argparse.Namespace) -> None:
                 pbar.set_description(f"[3/3 ✦] {ep.title[:38]}")
                 elapsed = time.monotonic() - ep_start
                 speakers = ", ".join(result["speakers_found"]) or "UNKNOWN"
-                _log(
-                    f"  ↳ Transcribe  lang={result['language']}  "
-                    f"segs={result['segments']} ✓"
-                )
-                _log(
-                    f"  ↳ Embed       {result['chunks_stored']} chunks stored ✓"
-                )
+                _log(f"  ↳ Transcribe  lang={result['language']}  segs={result['segments']} ✓")
+                _log(f"  ↳ Embed       {result['chunks_stored']} chunks stored ✓")
                 _log(f"  ↳ Speakers    {speakers}")
                 _log(f"  ↳ Time        {_fmt_duration(elapsed)}")
                 done += 1
@@ -195,6 +198,7 @@ async def run(args: argparse.Namespace) -> None:
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -235,6 +239,7 @@ if __name__ == "__main__":
 
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
     except ImportError:
         pass

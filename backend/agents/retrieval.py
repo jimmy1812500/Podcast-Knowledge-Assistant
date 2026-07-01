@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import asyncio
 
-from agents.state import AgentState
-from etl.embeddings import embed_query, get_chroma, COLLECTION_NAME
+from backend.agents.state import AgentState
+from backend.etl.embeddings import embed_query, get_chroma, COLLECTION_NAME
 
 TOP_K = 5
 

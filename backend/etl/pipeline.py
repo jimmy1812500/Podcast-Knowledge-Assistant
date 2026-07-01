@@ -16,10 +16,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from etl.asr import Transcript, transcribe
-from etl.diarize import SpeakerSegment, diarize, dominant_speaker
-from etl.embeddings import store_chunks
-from etl.splitter import Chunk, split_text
+from backend.etl.asr import Transcript, transcribe
+from backend.etl.diarize import SpeakerSegment, diarize, dominant_speaker
+from backend.etl.embeddings import store_chunks
+from backend.etl.splitter import Chunk, split_text
 
 
 def _build_chunk_meta(

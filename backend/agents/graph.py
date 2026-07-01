@@ -13,11 +13,11 @@ from __future__ import annotations
 import ollama
 from langgraph.graph import END, StateGraph
 
-from agents.evaluator import OLLAMA_MODEL
-from agents.evaluator import evaluate_node
-from agents.retrieval import retrieve_node
-from agents.state import AgentState
-from agents.synthesis import synthesize_node
+from backend.agents.evaluator import OLLAMA_MODEL
+from backend.agents.evaluator import evaluate_node
+from backend.agents.retrieval import retrieve_node
+from backend.agents.state import AgentState
+from backend.agents.synthesis import synthesize_node
 
 MAX_ITERATIONS = 3
 

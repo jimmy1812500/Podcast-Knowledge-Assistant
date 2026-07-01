@@ -13,11 +13,11 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from agents.evaluator import evaluate_node
-from agents.graph import MAX_ITERATIONS, expand_query_node, get_graph
-from agents.retrieval import retrieve_node
-from agents.state import AgentState
-from agents.synthesis import stream_synthesis
+from backend.agents.evaluator import evaluate_node
+from backend.agents.graph import MAX_ITERATIONS, expand_query_node, get_graph
+from backend.agents.retrieval import retrieve_node
+from backend.agents.state import AgentState
+from backend.agents.synthesis import stream_synthesis
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 

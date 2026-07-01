@@ -9,7 +9,7 @@ from typing import AsyncIterator
 
 import ollama
 
-from agents.state import AgentState
+from backend.agents.state import AgentState
 
 OLLAMA_MODEL = "gemma3:4b"
 

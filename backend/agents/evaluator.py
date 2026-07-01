@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import ollama
 
-from agents.state import AgentState
+from backend.agents.state import AgentState
 
 OLLAMA_MODEL = "gemma3:4b"
 

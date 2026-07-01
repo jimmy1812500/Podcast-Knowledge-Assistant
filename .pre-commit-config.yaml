@@ -2,7 +2,7 @@
 repos:
   # Built-in sanity checks (no extra tools needed)
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace       # remove trailing spaces
       - id: end-of-file-fixer         # ensure files end with a newline
@@ -13,7 +13,7 @@ repos:
 
   # Ruff: lint + format (replaces flake8 + black + isort)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.20
+    rev: v0.9.0
     hooks:
       - id: ruff          # linter — flags bugs and style issues
         args: [--fix]     # auto-fix what it can

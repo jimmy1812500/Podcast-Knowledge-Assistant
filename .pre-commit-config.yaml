@@ -1,0 +1,20 @@
+# .pre-commit-config.yaml
+repos:
+  # Built-in sanity checks (no extra tools needed)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace       # remove trailing spaces
+      - id: end-of-file-fixer         # ensure files end with a newline
+      - id: check-yaml                # validate .yaml files
+      - id: check-toml                # validate pyproject.toml syntax
+      - id: check-added-large-files   # block files > 500 KB by default
+      - id: debug-statements          # catch leftover breakpoint() / pdb calls
+
+  # Ruff: lint + format (replaces flake8 + black + isort)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff          # linter — flags bugs and style issues
+        args: [--fix]     # auto-fix what it can
+      - id: ruff-format   # formatter — rewrites code for consistent style

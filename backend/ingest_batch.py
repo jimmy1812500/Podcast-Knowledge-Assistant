@@ -24,29 +24,48 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import sys
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 from tqdm import tqdm
 
+# Allow `python backend/ingest_batch.py` from project root
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 # ── Validate env early ───────────────────────────────────────────────────────
 
 
-def _check_env() -> None:
-    if not os.environ.get("HF_TOKEN"):
-        print("WARNING: HF_TOKEN is not set — speaker diarization will be skipped.")
-        print("  To enable: accept https://huggingface.co/pyannote/speaker-diarization-3.1")
-        print("  then: export HF_TOKEN=hf_...\n")
+def _resolve_device(device: str) -> str:
+    """Resolve 'auto' to 'cuda' or 'cpu' based on torch availability."""
+    if device != "auto":
+        return device
+    try:
+        import torch
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"
+
+
+def _check_env(diarize: bool) -> None:
+    if not diarize:
+        print("  Diarize: OFF (pass --diarize to enable speaker labels, adds ~7 min/episode)")
+    elif not os.environ.get("HF_TOKEN"):
+        print("WARNING: --diarize requested but HF_TOKEN is not set — diarization will be skipped.")
+        print("  Accept https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print("  then add HF_TOKEN to backend/.env\n")
 
 
 # ── Lazy imports (after env check) ───────────────────────────────────────────
 
 
 def _import_etl():
-    from etl.embeddings import COLLECTION_NAME, get_chroma
-    from etl.pipeline import run_etl
-    from etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
+    from backend.etl.embeddings import COLLECTION_NAME, get_chroma
+    from backend.etl.pipeline import run_etl
+    from backend.etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
 
     return fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS
 
@@ -71,6 +90,33 @@ def _already_indexed(chroma, collection_name: str, title: str) -> bool:
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
+class _Ticker:
+    """Updates the tqdm bar postfix every 2 s with elapsed time — no new lines printed."""
+
+    def __init__(self, label: str, pbar: tqdm):
+        self._label = label
+        self._pbar = pbar
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        start = time.monotonic()
+        while not self._stop.wait(2):
+            elapsed = time.monotonic() - start
+            h, rem = divmod(int(elapsed), 3600)
+            m, s = divmod(rem, 60)
+            dur = f"{h}h {m:02d}m {s:02d}s" if h else f"{m}m {s:02d}s"
+            self._pbar.set_postfix_str(f"{self._label} {dur}")
+
+    def __enter__(self):
+        self._t.start()
+        return self
+
+    def __exit__(self, *_):
+        self._stop.set()
+        self._t.join()
+
+
 def _fmt_duration(seconds: float) -> str:
     h, rem = divmod(int(seconds), 3600)
     m, s = divmod(rem, 60)
@@ -93,10 +139,12 @@ async def run(args: argparse.Namespace) -> None:
     since = datetime.fromisoformat(args.since).replace(tzinfo=UTC)
     until = datetime.fromisoformat(args.until).replace(tzinfo=UTC) if args.until else None
     dest = Path(args.dest)
+    device = _resolve_device(args.device)
 
     print("\nHuberman Lab batch ingest")
     print(f"  Range  : {since.date()} → {until.date() if until else 'today'}")
     print(f"  Model  : whisper-{args.model}")
+    print(f"  Device : {device}")
     print(f"  Dest   : {dest}")
     if args.dry_run:
         print("  Mode   : DRY RUN (no download / ETL)")
@@ -127,7 +175,7 @@ async def run(args: argparse.Namespace) -> None:
         total=total,
         unit="ep",
         dynamic_ncols=True,
-        bar_format="{l_bar}{bar}| {n}/{total} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
+        bar_format="{l_bar}{bar}| {n}/{total} [elapsed {elapsed}] {postfix}",
     ) as pbar:
         for ep in episodes:
             pbar.set_description(ep.title[:45])
@@ -163,13 +211,16 @@ async def run(args: argparse.Namespace) -> None:
             # ── Step 2 & 3: ETL (ASR + diarize + embed + store) ─────────────
             pbar.set_description(f"[2/3 ◎] {ep.title[:38]}")
             try:
-                result = await run_etl(
-                    path,
-                    source_name=ep.title,
-                    whisper_model=args.model,
-                    chunk_size=500,
-                    overlap=100,
-                )
+                with _Ticker("ETL", pbar):
+                    result = await run_etl(
+                        path,
+                        source_name=ep.title,
+                        whisper_model=args.model,
+                        chunk_size=500,
+                        overlap=100,
+                        device=device,
+                        diarize=args.diarize,
+                    )
                 pbar.set_description(f"[3/3 ✦] {ep.title[:38]}")
                 elapsed = time.monotonic() - ep_start
                 speakers = ", ".join(result["speakers_found"]) or "UNKNOWN"
@@ -231,17 +282,28 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print episode list without downloading or running ETL.",
     )
+    p.add_argument(
+        "--diarize",
+        action="store_true",
+        help="Enable speaker diarization via pyannote (requires HF_TOKEN). Adds ~7 min per episode on CPU.",
+    )
+    p.add_argument(
+        "--device",
+        default="auto",
+        choices=["auto", "cpu", "cuda"],
+        help="Inference device for Whisper and pyannote. 'auto' picks CUDA if available, else CPU.",
+    )
     return p.parse_args()
 
 
 if __name__ == "__main__":
-    _check_env()
-
     try:
         from dotenv import load_dotenv
 
-        load_dotenv()
+        load_dotenv(Path(__file__).parent / ".env")
     except ImportError:
         pass
 
-    asyncio.run(run(_parse_args()))
+    _args = _parse_args()
+    _check_env(_args.diarize)
+    asyncio.run(run(_args))

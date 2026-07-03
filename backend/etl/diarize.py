@@ -23,35 +23,59 @@ from pathlib import Path
 
 DIARIZE_MODEL = "pyannote/speaker-diarization-3.1"
 
-# Singleton — loading the pipeline takes ~10s and ~1 GB RAM.
-_pipeline = None
+# Singleton keyed by device — loading the pipeline takes ~10s and ~1 GB RAM.
+_pipeline_cache: dict[str, object] = {}
 
 
 @dataclass
 class SpeakerSegment:
-    start: float   # seconds
+    start: float  # seconds
     end: float
-    speaker: str   # "SPEAKER_00", "SPEAKER_01", …
+    speaker: str  # "SPEAKER_00", "SPEAKER_01", …
 
 
-def _load_pipeline(hf_token: str):
-    global _pipeline
-    if _pipeline is None:
+def _load_pipeline(hf_token: str, device: str):
+    if device not in _pipeline_cache:
+        import torch
         from pyannote.audio import Pipeline
-        _pipeline = Pipeline.from_pretrained(DIARIZE_MODEL, token=hf_token)
-    return _pipeline
+
+        pipeline = Pipeline.from_pretrained(DIARIZE_MODEL, token=hf_token)
+        pipeline.to(torch.device(device))
+        _pipeline_cache[device] = pipeline
+    return _pipeline_cache[device]
 
 
-def _diarize_sync(audio_path: Path, hf_token: str) -> list[SpeakerSegment]:
-    pipeline = _load_pipeline(hf_token)
-    annotation = pipeline(str(audio_path))
+def _diarize_sync(audio_path: Path, hf_token: str, device: str) -> list[SpeakerSegment]:
+    pipeline = _load_pipeline(hf_token, device)
+    output = pipeline(str(audio_path))
+    # Unwrap the annotation object — API differs across pyannote versions:
+    #   old (≤3.1): pipeline() returns Annotation directly (has itertracks)
+    #   new (≥3.2): pipeline() returns DiarizeOutput with a .diarization field
+    if hasattr(output, "itertracks"):
+        annotation = output
+    elif hasattr(output, "speaker_diarization"):
+        annotation = output.speaker_diarization
+    elif hasattr(output, "diarization"):
+        annotation = output.diarization
+    elif hasattr(output, "annotation"):
+        annotation = output.annotation
+    else:
+        public_attrs = [a for a in dir(output) if not a.startswith("_")]
+        raise AttributeError(
+            f"Cannot extract Annotation from {type(output).__name__}. "
+            f"Available attributes: {public_attrs}"
+        )
     return [
         SpeakerSegment(start=seg.start, end=seg.end, speaker=label)
         for seg, _, label in annotation.itertracks(yield_label=True)
     ]
 
 
-async def diarize(audio_path: Path, hf_token: str | None = None) -> list[SpeakerSegment]:
+async def diarize(
+    audio_path: Path,
+    hf_token: str | None = None,
+    device: str = "cpu",
+) -> list[SpeakerSegment]:
     """
     Run pyannote speaker diarization on an audio file.
 
@@ -69,7 +93,7 @@ async def diarize(audio_path: Path, hf_token: str | None = None) -> list[Speaker
             "  2. export HF_TOKEN=hf_..."
         )
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _diarize_sync, audio_path, token)
+    return await loop.run_in_executor(None, _diarize_sync, audio_path, token, device)
 
 
 def dominant_speaker(

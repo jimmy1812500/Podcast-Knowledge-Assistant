@@ -28,44 +28,76 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+
+# Allow `python backend/ingest_batch_1.py` from project root
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tqdm import tqdm
 
 # ── Validate env early ───────────────────────────────────────────────────────
 
-def _check_env() -> None:
-    # Diarization is disabled in this test script — pyannote's required models
-    # are gated and failing with 403, and running it alongside Whisper wastes CPU.
-    os.environ.pop("HF_TOKEN", None)
+
+def _resolve_device(device: str) -> str:
+    """Resolve 'auto' to 'cuda' or 'cpu' based on torch availability."""
+    if device != "auto":
+        return device
+    try:
+        import torch
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"
+
+
+def _check_env(diarize: bool) -> None:
+    if not diarize:
+        print("  Diarize: OFF (pass --diarize to enable speaker labels, adds ~7 min/episode)")
+    elif not os.environ.get("HF_TOKEN"):
+        print("WARNING: --diarize requested but HF_TOKEN is not set — diarization will be skipped.")
+        print("  Add HF_TOKEN to backend/.env\n")
+
 
 # ── Lazy imports (after env check) ───────────────────────────────────────────
 
+
 def _import_etl():
-    from etl.embeddings import COLLECTION_NAME, get_chroma
-    from etl.pipeline import run_etl
-    from etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
+    from backend.etl.embeddings import COLLECTION_NAME, get_chroma
+    from backend.etl.pipeline import run_etl
+    from backend.etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
+
     return fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS
 
 
 # ── Already-indexed check ────────────────────────────────────────────────────
 
+
 def _trim_audio(src: Path, fraction: float = 0.25) -> tuple[Path, float]:
     """Trim audio to the first `fraction` of its total duration using ffmpeg.
+    Outputs WAV (PCM) to avoid MP3 frame-boundary sample-count mismatches in pyannote.
     Returns (trimmed_path, trimmed_duration_seconds)."""
     import av
+
     with av.open(str(src)) as container:
         total_secs = container.duration / 1_000_000  # microseconds → seconds
     trim_secs = total_secs * fraction
-    dest = src.with_stem(src.stem + "_quarter")
+    dest = src.with_stem(src.stem + "_quarter").with_suffix(".wav")
     subprocess.run(
         [
-            "ffmpeg", "-i", str(src),
-            "-t", str(trim_secs),
-            "-c", "copy",
+            "ffmpeg",
+            "-i",
+            str(src),
+            "-t",
+            str(trim_secs),
+            "-ar",
+            "16000",  # 16 kHz mono — what pyannote expects
+            "-ac",
+            "1",
             str(dest),
-            "-y", "-loglevel", "error",
+            "-y",
+            "-loglevel",
+            "error",
         ],
         check=True,
     )
@@ -88,10 +120,12 @@ def _already_indexed(chroma, collection_name: str, title: str) -> bool:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _fmt_duration(seconds: float) -> str:
     h, rem = divmod(int(seconds), 3600)
     m, s = divmod(rem, 60)
     return f"{h}h {m:02d}m {s:02d}s" if h else f"{m}m {s:02d}s"
+
 
 def _log(msg: str) -> None:
     """Print a line above the tqdm bar without breaking it."""
@@ -99,17 +133,19 @@ def _log(msg: str) -> None:
 
 
 class _Ticker:
-    """Prints elapsed time every 30 s while a slow step is running."""
-    def __init__(self, label: str):
+    """Updates the tqdm bar postfix every 2 s with elapsed time — no new lines printed."""
+
+    def __init__(self, label: str, pbar: tqdm):
         self._label = label
+        self._pbar = pbar
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._run, daemon=True)
 
     def _run(self) -> None:
         start = time.monotonic()
-        while not self._stop.wait(30):
+        while not self._stop.wait(2):
             elapsed = time.monotonic() - start
-            _log(f"  ↳ {self._label}  still running … {_fmt_duration(elapsed)}")
+            self._pbar.set_postfix_str(f"{self._label} {_fmt_duration(elapsed)}")
 
     def __enter__(self):
         self._t.start()
@@ -122,16 +158,21 @@ class _Ticker:
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
+
 async def run(args: argparse.Namespace) -> None:
-    fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS = _import_etl()
+    fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS = (
+        _import_etl()
+    )
 
-    since = datetime.fromisoformat(args.since).replace(tzinfo=timezone.utc)
-    until = datetime.fromisoformat(args.until).replace(tzinfo=timezone.utc) if args.until else None
+    since = datetime.fromisoformat(args.since).replace(tzinfo=UTC)
+    until = datetime.fromisoformat(args.until).replace(tzinfo=UTC) if args.until else None
     dest = Path(args.dest)
+    device = _resolve_device(args.device)
 
-    print(f"\nHuberman Lab batch ingest")
+    print("\nHuberman Lab batch ingest")
     print(f"  Range  : {since.date()} → {until.date() if until else 'today'}")
     print(f"  Model  : whisper-{args.model}")
+    print(f"  Device : {device}")
     print(f"  Dest   : {dest}")
     if args.dry_run:
         print("  Mode   : DRY RUN (no download / ETL)")
@@ -164,9 +205,8 @@ async def run(args: argparse.Namespace) -> None:
         total=total,
         unit="ep",
         dynamic_ncols=True,
-        bar_format="{l_bar}{bar}| {n}/{total} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
+        bar_format="{l_bar}{bar}| {n}/{total} [elapsed {elapsed}] {postfix}",
     ) as pbar:
-
         for ep in episodes:
             pbar.set_description(ep.title[:45])
             pbar.set_postfix(done=done, skip=skipped, fail=failed)
@@ -198,28 +238,30 @@ async def run(args: argparse.Namespace) -> None:
                 pbar.update(1)
                 continue
 
+            # ── Trim to first 25% for fast single-episode testing ────────────
+            trimmed_path, trim_secs = _trim_audio(path, fraction=0.25)
+            _log(f"  ↳ Trimmed     to first {trim_secs / 60:.1f} min (25%)")
+            path.unlink(missing_ok=True)
+            path = trimmed_path
+
             # ── Step 2 & 3: ETL (ASR + diarize + embed + store) ─────────────
             pbar.set_description(f"[2/3 ◎] {ep.title[:38]}")
-            _log("  ↳ Transcribing (ticker every 30s) …")
             try:
-                with _Ticker("Transcribing"):
+                with _Ticker("ETL", pbar):
                     result = await run_etl(
                         path,
                         source_name=ep.title,
                         whisper_model=args.model,
                         chunk_size=500,
                         overlap=100,
+                        device=device,
+                        diarize=args.diarize,
                     )
                 pbar.set_description(f"[3/3 ✦] {ep.title[:38]}")
                 elapsed = time.monotonic() - ep_start
                 speakers = ", ".join(result["speakers_found"]) or "UNKNOWN"
-                _log(
-                    f"  ↳ Transcribe  lang={result['language']}  "
-                    f"segs={result['segments']} ✓"
-                )
-                _log(
-                    f"  ↳ Embed       {result['chunks_stored']} chunks stored ✓"
-                )
+                _log(f"  ↳ Transcribe  lang={result['language']}  segs={result['segments']} ✓")
+                _log(f"  ↳ Embed       {result['chunks_stored']} chunks stored ✓")
                 _log(f"  ↳ Speakers    {speakers}")
                 _log(f"  ↳ Time        {_fmt_duration(elapsed)}")
                 done += 1
@@ -243,6 +285,7 @@ async def run(args: argparse.Namespace) -> None:
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -275,16 +318,28 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print episode list without downloading or running ETL.",
     )
+    p.add_argument(
+        "--diarize",
+        action="store_true",
+        help="Enable speaker diarization via pyannote (requires HF_TOKEN). Adds ~7 min per episode on CPU.",
+    )
+    p.add_argument(
+        "--device",
+        default="auto",
+        choices=["auto", "cpu", "cuda"],
+        help="Inference device for Whisper and pyannote. 'auto' picks CUDA if available, else CPU.",
+    )
     return p.parse_args()
 
 
 if __name__ == "__main__":
-    _check_env()
-
     try:
         from dotenv import load_dotenv
-        load_dotenv()
+
+        load_dotenv(Path(__file__).parent / ".env")
     except ImportError:
         pass
 
-    asyncio.run(run(_parse_args()))
+    _args = _parse_args()
+    _check_env(_args.diarize)
+    asyncio.run(run(_args))

@@ -1,16 +1,17 @@
 """
 Chat endpoints:
   POST /chat          — synchronous RAG answer (JSON)
-  GET  /chat/stream   — SSE streaming answer (?q=<question>)
+  GET  /chat/stream   — SSE streaming answer (?q=<question>&session_id=<id>)
 """
 
 from __future__ import annotations
 
 import json
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
 from backend.agents.evaluator import evaluate_node
@@ -21,11 +22,16 @@ from backend.agents.synthesis import stream_synthesis
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+# In-memory conversation store for SSE streaming sessions
+_streaming_sessions: dict[str, list] = {}
+
 
 # ── Request / response models ─────────────────────────────────────────────────
 
+
 class ChatRequest(BaseModel):
     query: str
+    session_id: str | None = None
 
 
 class SourceRef(BaseModel):
@@ -46,6 +52,7 @@ class ChatResponse(BaseModel):
 
 # ── POST /chat ────────────────────────────────────────────────────────────────
 
+
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
     graph = get_graph()
@@ -56,8 +63,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
         "evaluation": "",
         "answer": "",
         "iteration": 0,
+        "messages": [HumanMessage(content=req.query)],
     }
-    final = await graph.ainvoke(init_state)
+    config = {"configurable": {"thread_id": req.session_id or "default"}}
+    final = await graph.ainvoke(init_state, config=config)
     return ChatResponse(
         query=final["query"],
         answer=final["answer"],
@@ -68,7 +77,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
 # ── GET /chat/stream ──────────────────────────────────────────────────────────
 
-async def _sse_generator(query: str) -> AsyncIterator[str]:
+
+async def _sse_generator(query: str, session_id: str) -> AsyncIterator[str]:
+    prior_messages = _streaming_sessions.get(session_id, [])
+
     state: AgentState = {
         "query": query,
         "search_query": query,
@@ -76,6 +88,7 @@ async def _sse_generator(query: str) -> AsyncIterator[str]:
         "evaluation": "",
         "answer": "",
         "iteration": 0,
+        "messages": prior_messages + [HumanMessage(content=query)],
     }
 
     # Run retrieve → evaluate → expand loop (without synthesis)
@@ -105,17 +118,25 @@ async def _sse_generator(query: str) -> AsyncIterator[str]:
     ]
     yield f"data: {json.dumps({'type': 'sources', 'sources': sources, 'evaluation': state['evaluation']})}\n\n"
 
-    # Stream synthesis tokens
+    # Stream synthesis tokens and accumulate full answer
+    full_answer = ""
     async for token in stream_synthesis(state):
+        full_answer += token
         yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+
+    # Persist updated conversation history for this session
+    _streaming_sessions[session_id] = prior_messages + [
+        HumanMessage(content=query),
+        AIMessage(content=full_answer),
+    ]
 
     yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
 @router.get("/stream")
-async def chat_stream(q: str) -> StreamingResponse:
+async def chat_stream(q: str, session_id: str | None = None) -> StreamingResponse:
     return StreamingResponse(
-        _sse_generator(q),
+        _sse_generator(q, session_id or "default"),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

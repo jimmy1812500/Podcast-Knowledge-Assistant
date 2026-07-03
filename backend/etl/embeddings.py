@@ -27,7 +27,7 @@ from sentence_transformers import SentenceTransformer
 COLLECTION_NAME = "transcription_chunks"
 EMBED_MODEL = "BAAI/bge-large-en-v1.5"
 EMBED_DIM = 1024
-_ENCODE_BATCH = 32   # chunks per SentenceTransformer encode call
+_ENCODE_BATCH = 32  # chunks per SentenceTransformer encode call
 
 
 def _make_chroma() -> chromadb.ClientAPI:
@@ -38,7 +38,7 @@ def _make_chroma() -> chromadb.ClientAPI:
         client.heartbeat()
         return client
     except Exception:
-        return chromadb.PersistentClient(path="./chroma_data")
+        return chromadb.PersistentClient(path="./backend/chroma_data")
 
 
 _chroma: chromadb.ClientAPI | None = None
@@ -123,11 +123,11 @@ async def store_chunks(
         documents=texts,
         metadatas=[
             {
-                "source_file":      c["source_file"],
-                "timestamp_start":  c["timestamp_start"],
-                "timestamp_end":    c["timestamp_end"],
+                "source_file": c["source_file"],
+                "timestamp_start": c["timestamp_start"],
+                "timestamp_end": c["timestamp_end"],
                 "confidence_score": c["confidence_score"],
-                "speaker":          c.get("speaker", "UNKNOWN"),
+                "speaker": c.get("speaker", "UNKNOWN"),
             }
             for c in chunks_with_meta
         ],

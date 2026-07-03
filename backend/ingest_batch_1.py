@@ -238,12 +238,6 @@ async def run(args: argparse.Namespace) -> None:
                 pbar.update(1)
                 continue
 
-            # ── Trim to first 25% for fast single-episode testing ────────────
-            trimmed_path, trim_secs = _trim_audio(path, fraction=0.25)
-            _log(f"  ↳ Trimmed     to first {trim_secs / 60:.1f} min (25%)")
-            path.unlink(missing_ok=True)
-            path = trimmed_path
-
             # ── Step 2 & 3: ETL (ASR + diarize + embed + store) ─────────────
             pbar.set_description(f"[2/3 ◎] {ep.title[:38]}")
             try:

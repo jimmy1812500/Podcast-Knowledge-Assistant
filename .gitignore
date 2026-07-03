@@ -1,11 +1,12 @@
 .DS_Store
 backend/chroma_data/*
+chroma_data/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
 github_issues/
-
+backend/new_improvement_idea.txt
 # C extensions
 *.so
 

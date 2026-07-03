@@ -11,13 +11,15 @@ Flow:
 from __future__ import annotations
 
 import ollama
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from backend.agents.evaluator import OLLAMA_MODEL
-from backend.agents.evaluator import evaluate_node
+from backend.agents.evaluator import OLLAMA_MODEL, evaluate_node
 from backend.agents.retrieval import retrieve_node
 from backend.agents.state import AgentState
 from backend.agents.synthesis import synthesize_node
+
+_checkpointer = MemorySaver()
 
 MAX_ITERATIONS = 3
 
@@ -63,7 +65,7 @@ def build_graph():
     g.add_edge("expand", "retrieve")
     g.add_edge("synthesize", END)
 
-    return g.compile()
+    return g.compile(checkpointer=_checkpointer)
 
 
 _graph = None

@@ -226,6 +226,7 @@
 </div>
 
 <script>
+  const SESSION_ID  = crypto.randomUUID();
   const messagesEl = document.getElementById('messages');
   const queryEl    = document.getElementById('query');
   const sendBtn    = document.getElementById('send');
@@ -312,7 +313,7 @@
     let sources    = [];
     let { row, bubble } = { row: null, bubble: null };
 
-    const es = new EventSource(`/chat/stream?q=${encodeURIComponent(q)}`);
+    const es = new EventSource(`/chat/stream?q=${encodeURIComponent(q)}&session_id=${SESSION_ID}`);
 
     es.onmessage = (e) => {
       const data = JSON.parse(e.data);

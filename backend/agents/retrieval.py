@@ -12,6 +12,53 @@ from backend.etl.embeddings import COLLECTION_NAME, embed_query, get_chroma
 
 TOP_K = 10
 
+# Maps name/role keywords (lowercase) → ChromaDB speaker label.
+# Update this when new episodes with different guests are ingested.
+# SPEAKER_02 = Andrew Huberman (host)
+# SPEAKER_01 = Dr. Layne Norton (guest, episode: Essentials - Eating for Health)
+# SPEAKER_00 = Ads / end-of-episode noise — never a useful source
+SPEAKER_ALIASES: dict[str, str] = {
+    "huberman": "SPEAKER_02",
+    "andrew": "SPEAKER_02",
+    "host": "SPEAKER_02",
+    "norton": "SPEAKER_01",
+    "layne": "SPEAKER_01",
+    "guest": "SPEAKER_01",
+    "dr. norton": "SPEAKER_01",
+}
+
+# These speaker labels contain only ads or noise — always excluded
+_AD_SPEAKERS: set[str] = {"SPEAKER_00"}
+
+
+def _detect_speaker_filter(query: str, messages: list | None = None) -> str | None:
+    """Return the speaker label implied by the query or any prior human turn.
+
+    Checks the current query first, then walks conversation history newest-first
+    so that pronoun follow-ups ("his opinion") inherit the speaker from the
+    turn where the name was first mentioned.
+    """
+
+    def _match(text: str) -> str | None:
+        t = text.lower()
+        for keyword, speaker in SPEAKER_ALIASES.items():
+            if keyword in t:
+                return speaker
+        return None
+
+    result = _match(query)
+    if result:
+        return result
+
+    # Scan prior human messages (most recent first) for a speaker reference
+    for msg in reversed(messages or []):
+        if getattr(msg, "type", "") == "human":
+            result = _match(msg.content)
+            if result:
+                return result
+
+    return None
+
 
 def _query_chroma_sync(vec: list[float]) -> list[dict]:
     chroma = get_chroma()
@@ -48,7 +95,22 @@ async def retrieve_node(state: AgentState) -> dict:
     vec = await embed_query(query)
     loop = asyncio.get_event_loop()
     candidates = await loop.run_in_executor(None, _query_chroma_sync, vec)
-    context = await loop.run_in_executor(None, rerank, query, candidates)
+
+    # Detect speaker intent from the original query and conversation history.
+    # Using state["query"] (not search_query) so rephrasing doesn't drop names.
+    # Passing messages so pronoun follow-ups ("his opinion") resolve to the
+    # speaker named in an earlier turn.
+    speaker_filter = _detect_speaker_filter(state["query"], state.get("messages", []))
+
+    if speaker_filter:
+        # Query names a specific person — return only their chunks
+        filtered = [c for c in candidates if c.get("speaker") == speaker_filter]
+    else:
+        # No specific person — exclude ad/noise chunks, allow all content speakers
+        filtered = [c for c in candidates if c.get("speaker") not in _AD_SPEAKERS]
+
+    # Fall back to unfiltered candidates if the filter removes everything
+    context = await loop.run_in_executor(None, rerank, query, filtered or candidates)
     return {
         "context": context,
         "iteration": state.get("iteration", 0) + 1,

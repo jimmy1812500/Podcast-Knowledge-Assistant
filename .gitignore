@@ -10,6 +10,14 @@ backend/new_improvement_idea.txt
 # C extensions
 *.so
 
+#file
+CLAUDE.md
+deepen_instruction.md
+example implementation plan.md
+phase1_summary.md
+phase2_summary.md
+Workflow.md
+
 # Distribution / packaging
 .Python
 build/

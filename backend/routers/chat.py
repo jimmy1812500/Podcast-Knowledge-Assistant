@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
@@ -54,7 +54,13 @@ class ChatResponse(BaseModel):
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(
+    req: ChatRequest,
+    x_user_id: str | None = Header(None, alias="X-User-ID"),
+) -> ChatResponse:
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="X-User-ID header is required.")
+
     graph = get_graph()
     init_state: AgentState = {
         "query": req.query,
@@ -64,8 +70,9 @@ async def chat(req: ChatRequest) -> ChatResponse:
         "answer": "",
         "iteration": 0,
         "messages": [HumanMessage(content=req.query)],
+        "user_id": x_user_id,
     }
-    config = {"configurable": {"thread_id": req.session_id or "default"}}
+    config = {"configurable": {"thread_id": f"{x_user_id}:{req.session_id or 'default'}"}}
     final = await graph.ainvoke(init_state, config=config)
     return ChatResponse(
         query=final["query"],
@@ -78,8 +85,9 @@ async def chat(req: ChatRequest) -> ChatResponse:
 # ── GET /chat/stream ──────────────────────────────────────────────────────────
 
 
-async def _sse_generator(query: str, session_id: str) -> AsyncIterator[str]:
-    prior_messages = _streaming_sessions.get(session_id, [])
+async def _sse_generator(query: str, session_id: str, user_id: str) -> AsyncIterator[str]:
+    session_key = f"{user_id}:{session_id}"
+    prior_messages = _streaming_sessions.get(session_key, [])
 
     state: AgentState = {
         "query": query,
@@ -89,6 +97,7 @@ async def _sse_generator(query: str, session_id: str) -> AsyncIterator[str]:
         "answer": "",
         "iteration": 0,
         "messages": prior_messages + [HumanMessage(content=query)],
+        "user_id": user_id,
     }
 
     # Run retrieve → evaluate → expand loop (without synthesis)
@@ -125,7 +134,7 @@ async def _sse_generator(query: str, session_id: str) -> AsyncIterator[str]:
         yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
     # Persist updated conversation history for this session
-    _streaming_sessions[session_id] = prior_messages + [
+    _streaming_sessions[session_key] = prior_messages + [
         HumanMessage(content=query),
         AIMessage(content=full_answer),
     ]
@@ -134,9 +143,16 @@ async def _sse_generator(query: str, session_id: str) -> AsyncIterator[str]:
 
 
 @router.get("/stream")
-async def chat_stream(q: str, session_id: str | None = None) -> StreamingResponse:
+async def chat_stream(
+    q: str,
+    session_id: str | None = None,
+    x_user_id: str | None = Header(None, alias="X-User-ID"),
+) -> StreamingResponse:
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="X-User-ID header is required.")
+
     return StreamingResponse(
-        _sse_generator(q, session_id or "default"),
+        _sse_generator(q, session_id or "default", x_user_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -220,6 +220,7 @@ async def run(args: argparse.Namespace) -> None:
                         overlap=100,
                         device=device,
                         diarize=args.diarize,
+                        user_id=args.user_id,
                     )
                 pbar.set_description(f"[3/3 ✦] {ep.title[:38]}")
                 elapsed = time.monotonic() - ep_start
@@ -292,6 +293,11 @@ def _parse_args() -> argparse.Namespace:
         default="auto",
         choices=["auto", "cpu", "cuda"],
         help="Inference device for Whisper and pyannote. 'auto' picks CUDA if available, else CPU.",
+    )
+    p.add_argument(
+        "--user-id",
+        default="public",
+        help="user_id tag written to every ChromaDB chunk. Must match the X-User-ID used when querying /chat.",
     )
     return p.parse_args()
 

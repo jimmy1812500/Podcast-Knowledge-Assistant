@@ -60,7 +60,7 @@ def _detect_speaker_filter(query: str, messages: list | None = None) -> str | No
     return None
 
 
-def _query_chroma_sync(vec: list[float]) -> list[dict]:
+def _query_chroma_sync(vec: list[float], user_id: str) -> list[dict]:
     chroma = get_chroma()
     collection = chroma.get_or_create_collection(
         name=COLLECTION_NAME,
@@ -70,6 +70,7 @@ def _query_chroma_sync(vec: list[float]) -> list[dict]:
         query_embeddings=[vec],
         n_results=TOP_K,
         include=["documents", "metadatas", "distances"],
+        where={"user_id": user_id},
     )
     context = []
     for doc, meta, dist in zip(
@@ -92,9 +93,10 @@ def _query_chroma_sync(vec: list[float]) -> list[dict]:
 
 async def retrieve_node(state: AgentState) -> dict:
     query = state.get("search_query") or state["query"]
+    user_id = state.get("user_id", "public")
     vec = await embed_query(query)
-    loop = asyncio.get_event_loop()
-    candidates = await loop.run_in_executor(None, _query_chroma_sync, vec)
+    loop = asyncio.get_running_loop()
+    candidates = await loop.run_in_executor(None, _query_chroma_sync, vec, user_id)
 
     # Detect speaker intent from the original query and conversation history.
     # Using state["query"] (not search_query) so rephrasing doesn't drop names.
@@ -109,8 +111,10 @@ async def retrieve_node(state: AgentState) -> dict:
         # No specific person — exclude ad/noise chunks, allow all content speakers
         filtered = [c for c in candidates if c.get("speaker") not in _AD_SPEAKERS]
 
-    # Fall back to unfiltered candidates if the filter removes everything
-    context = await loop.run_in_executor(None, rerank, query, filtered or candidates)
+    # Fall back to non-ad candidates if the speaker filter removes everything,
+    # so ad chunks never surface as a named speaker's answer.
+    non_ad = [c for c in candidates if c.get("speaker") not in _AD_SPEAKERS]
+    context = await loop.run_in_executor(None, rerank, query, filtered or non_ad or candidates)
     return {
         "context": context,
         "iteration": state.get("iteration", 0) + 1,

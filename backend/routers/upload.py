@@ -7,7 +7,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from backend.etl.pipeline import run_etl
@@ -26,7 +26,7 @@ _ALLOWED_MIME = {
     "audio/x-m4a",
 }
 _MAX_BYTES = 500 * 1024 * 1024  # 500 MB
-_READ_CHUNK = 64 * 1024          # 64 KB streaming read
+_READ_CHUNK = 64 * 1024  # 64 KB streaming read
 
 
 class UploadResult(BaseModel):
@@ -37,7 +37,10 @@ class UploadResult(BaseModel):
 
 
 @router.post("/upload", response_model=UploadResult)
-async def upload_audio(file: UploadFile) -> UploadResult:
+async def upload_audio(
+    file: UploadFile,
+    x_user_id: str | None = Header(None, alias="X-User-ID"),
+) -> UploadResult:
     """
     Accept a WAV/MP3 audio file, transcribe it with Whisper, and store
     timestamped transcript embeddings in ChromaDB.
@@ -45,12 +48,14 @@ async def upload_audio(file: UploadFile) -> UploadResult:
     Example:
         curl -X POST http://localhost:8000/upload -F "file=@episode.mp3"
     """
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="X-User-ID header is required.")
+
     if file.content_type not in _ALLOWED_MIME:
         raise HTTPException(
             status_code=415,
             detail=(
-                f"Unsupported content type {file.content_type!r}. "
-                f"Accepted: {sorted(_ALLOWED_MIME)}"
+                f"Unsupported content type {file.content_type!r}. Accepted: {sorted(_ALLOWED_MIME)}"
             ),
         )
 
@@ -68,7 +73,7 @@ async def upload_audio(file: UploadFile) -> UploadResult:
             tmp.write(chunk)
 
     try:
-        result = await run_etl(tmp_path, source_name=file.filename)
+        result = await run_etl(tmp_path, source_name=file.filename, user_id=x_user_id)
     finally:
         tmp_path.unlink(missing_ok=True)
 

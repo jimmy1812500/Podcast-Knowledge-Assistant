@@ -27,6 +27,7 @@ def _build_chunk_meta(
     transcript: Transcript,
     source: str,
     speaker_segs: list[SpeakerSegment],
+    user_id: str = "public",
 ) -> list[dict[str, Any]]:
     """
     Build ChromaDB-ready dicts by mapping each chunk's character range to:
@@ -56,7 +57,7 @@ def _build_chunk_meta(
 
         speaker = dominant_speaker(t_start, t_end, speaker_segs)
 
-        chunk_id = hashlib.sha1(f"{source}:{chunk.char_start}".encode()).hexdigest()
+        chunk_id = hashlib.sha1(f"{user_id}:{source}:{chunk.char_start}".encode()).hexdigest()
         result.append(
             {
                 "chunk_id": chunk_id,
@@ -79,6 +80,7 @@ async def run_etl(
     overlap: int = 100,
     device: str = "cpu",
     diarize: bool = False,
+    user_id: str = "public",
 ) -> dict[str, Any]:
     """
     Full ETL pipeline on a single audio file.
@@ -103,8 +105,8 @@ async def run_etl(
     speaker_segs = await _safe_diarize(audio_path, device=device, diarize=diarize)
 
     chunks = split_text(transcript.text, chunk_size=chunk_size, overlap=overlap)
-    chunk_meta = _build_chunk_meta(chunks, transcript, source, speaker_segs)
-    stored = await store_chunks(chunk_meta)
+    chunk_meta = _build_chunk_meta(chunks, transcript, source, speaker_segs, user_id)
+    stored = await store_chunks(chunk_meta, user_id=user_id)
 
     speakers_found = sorted({c["speaker"] for c in chunk_meta} - {"UNKNOWN"})
 

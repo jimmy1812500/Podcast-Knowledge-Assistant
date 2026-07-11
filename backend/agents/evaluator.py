@@ -29,9 +29,7 @@ async def evaluate_node(state: AgentState) -> dict:
     if not state.get("context"):
         return {"evaluation": "INSUFFICIENT_CONTEXT"}
 
-    context_text = "\n\n".join(
-        f"[{i + 1}] {c['text']}" for i, c in enumerate(state["context"])
-    )
+    context_text = "\n\n".join(f"[{i + 1}] {c['text']}" for i, c in enumerate(state["context"]))
     prompt = _EVAL_PROMPT.format(query=state["query"], context=context_text)
 
     client = ollama.AsyncClient()

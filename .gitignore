@@ -1,6 +1,7 @@
 .DS_Store
 backend/chroma_data/*
 chroma_data/
+audio_cache/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -9,6 +10,7 @@ github_issues/
 backend/new_improvement_idea.txt
 # C extensions
 *.so
+tests/
 
 #file
 CLAUDE.md

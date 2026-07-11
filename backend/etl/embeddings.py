@@ -73,7 +73,7 @@ def _encode_sync(texts: list[str]) -> list[list[float]]:
 
 async def embed_texts(texts: list[str]) -> list[list[float]]:
     """Embed a list of texts locally using BAAI/bge-large-en-v1.5."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _encode_sync, texts)
 
 
@@ -87,13 +87,14 @@ def _encode_query_sync(query: str) -> list[float]:
 
 async def embed_query(query: str) -> list[float]:
     """Embed a single search query with the BGE query instruction prefix."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _encode_query_sync, query)
 
 
 async def store_chunks(
     chunks_with_meta: list[dict[str, Any]],
     collection_name: str = COLLECTION_NAME,
+    user_id: str = "public",
 ) -> int:
     """
     Embed and upsert chunks into ChromaDB.
@@ -128,6 +129,7 @@ async def store_chunks(
                 "timestamp_end": c["timestamp_end"],
                 "confidence_score": c["confidence_score"],
                 "speaker": c.get("speaker", "UNKNOWN"),
+                "user_id": user_id,
             }
             for c in chunks_with_meta
         ],

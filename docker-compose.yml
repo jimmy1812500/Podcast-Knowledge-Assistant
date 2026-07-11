@@ -1,0 +1,46 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./backend/chroma_data:/chroma/chroma
+
+  web:
+    build: .
+    command: uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8001
+    env_file:
+      - .env
+    volumes:
+      - ./backend/chroma_data:/app/backend/chroma_data
+      - ./audio_cache:/app/audio_cache
+    depends_on:
+      - redis
+      - chromadb
+
+  celery_worker:
+    build: .
+    command: uv run celery -A backend.worker.celery_app worker --loglevel=info --concurrency=1
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8001
+    env_file:
+      - .env
+    volumes:
+      - ./backend/chroma_data:/app/backend/chroma_data
+      - ./audio_cache:/app/audio_cache
+    depends_on:
+      - redis
+      - chromadb

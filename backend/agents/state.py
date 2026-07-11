@@ -11,3 +11,4 @@ class AgentState(TypedDict):
     answer: str
     iteration: int  # retrieval attempt count (max = MAX_ITERATIONS in graph)
     messages: Annotated[list, add_messages]
+    user_id: str  # scopes ChromaDB retrieval to the requesting user

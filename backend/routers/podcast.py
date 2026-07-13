@@ -48,7 +48,7 @@ class PodcastIngestRequest(BaseModel):
         default=None,
         description="ISO-8601 datetime — only ingest episodes published after this.",
     )
-    dest_dir: str = Field(default="/tmp/podcasts")
+    dest_dir: str = Field(default="audio_cache")
     diarize: bool = Field(
         default=False,
         description="Enable speaker diarization (requires HF_TOKEN set on the worker).",

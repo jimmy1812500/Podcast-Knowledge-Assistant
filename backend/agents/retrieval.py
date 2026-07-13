@@ -97,6 +97,7 @@ def _query_chroma_sync(
                 "timestamp_end": float(meta.get("timestamp_end", 0.0)),
                 "speaker": meta.get("speaker", "UNKNOWN"),
                 "score": round(1.0 - float(dist), 4),
+                "audio_file": meta.get("audio_file", ""),
             }
         )
     return context

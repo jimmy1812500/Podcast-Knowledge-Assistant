@@ -156,6 +156,33 @@
       40% { opacity: 1; transform: scale(1); }
     }
 
+    /* ── Audio player bar ── */
+    #player-bar {
+      background: #1a1a2e;
+      padding: 8px 16px;
+      flex-shrink: 0;
+      display: none;
+    }
+    #player-bar audio {
+      width: 100%;
+      height: 36px;
+      accent-color: #4f46e5;
+    }
+
+    /* ── Play button on source cards ── */
+    .play-btn {
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      padding: 2px 10px;
+      font-size: 0.72rem;
+      cursor: pointer;
+      flex-shrink: 0;
+      line-height: 1.6;
+    }
+    .play-btn:hover { background: #4338ca; }
+
     /* ── Input bar ── */
     #input-bar {
       background: #fff;
@@ -220,6 +247,10 @@
   </div>
 </div>
 
+<div id="player-bar">
+  <audio id="player" controls></audio>
+</div>
+
 <div id="input-bar">
   <input id="query" type="text" placeholder="e.g. What did Dr. Norton say about protein intake?" autocomplete="off" />
   <button id="send">Send</button>
@@ -231,6 +262,8 @@
   const queryEl    = document.getElementById('query');
   const sendBtn    = document.getElementById('send');
   const emptyEl    = document.getElementById('empty');
+  const playerBar  = document.getElementById('player-bar');
+  const playerEl   = document.getElementById('player');
 
   function hideEmpty() {
     if (emptyEl) emptyEl.style.display = 'none';
@@ -271,22 +304,49 @@
 
   function renderSources(sources) {
     if (!sources || sources.length === 0) return '';
-    const cards = sources.map(s => {
-      const pct = Math.round((s.score || 0) * 100);
-      const ts  = `${fmtTime(s.timestamp_start)} – ${fmtTime(s.timestamp_end)}`;
+    const cards = sources.map((s, i) => {
+      const pct     = Math.round((s.score || 0) * 100);
+      const tsLabel = fmtTime(s.timestamp_start);
+      const tsRange = `${tsLabel} – ${fmtTime(s.timestamp_end)}`;
       const snippet = escHtml(s.text.slice(0, 120)) + (s.text.length > 120 ? '…' : '');
+      const playBtn = s.audio_file
+        ? `<button class="play-btn" data-file="${escHtml(s.audio_file)}" data-t="${s.timestamp_start}">▶ ${tsLabel}</button>`
+        : `<span>⏱ ${tsRange}</span>`;
       return `
         <div class="source-card">
           ${snippet}
           <div class="source-meta">
             <span>🎙 ${escHtml(shortTitle(s.source))}</span>
-            <span>⏱ ${ts}</span>
+            ${playBtn}
             <span><span class="score-bar"><span class="score-fill" style="width:${pct}%"></span></span> ${pct}%</span>
           </div>
         </div>`;
     }).join('');
     return `<div class="sources"><div class="sources-label">Sources</div>${cards}</div>`;
   }
+
+  // Delegate Play button clicks — works for dynamically added cards
+  messagesEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.play-btn');
+    if (!btn) return;
+    const file = btn.dataset.file;
+    const t    = parseFloat(btn.dataset.t) || 0;
+    playerBar.style.display = 'block';
+    if (playerEl.dataset.currentFile !== file) {
+      // New episode: metadata hasn't loaded yet — seek and play inside the event.
+      // Listener is added before src so it can't be missed even in fast browsers.
+      playerEl.dataset.currentFile = file;
+      playerEl.addEventListener('loadedmetadata', () => {
+        playerEl.currentTime = t;
+        playerEl.play();
+      }, { once: true });
+      playerEl.src = `/audio/${encodeURIComponent(file)}`;
+    } else {
+      // Same episode already loaded — seek and play immediately.
+      playerEl.currentTime = t;
+      playerEl.play();
+    }
+  });
 
   function addAgentRow() {
     const row = document.createElement('div');

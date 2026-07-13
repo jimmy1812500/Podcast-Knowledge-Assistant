@@ -236,8 +236,6 @@ async def run(args: argparse.Namespace) -> None:
             except Exception as exc:
                 _log(f"  ↳ ETL         FAILED: {exc}")
                 failed += 1
-            finally:
-                path.unlink(missing_ok=True)
 
             pbar.set_postfix(done=done, skip=skipped, fail=failed)
             pbar.update(1)
@@ -278,8 +276,8 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--dest",
-        default="/tmp/huberman_podcasts",
-        help="Directory for temporary MP3 downloads (deleted after ETL).",
+        default="audio_cache",
+        help="Directory where MP3s are saved after ETL (kept on disk for audio playback).",
     )
     p.add_argument(
         "--dry-run",

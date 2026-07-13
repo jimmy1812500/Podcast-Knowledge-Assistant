@@ -43,6 +43,7 @@ class SourceRef(BaseModel):
     speaker: str
     score: float
     text: str
+    audio_file: str = ""
 
 
 class ChatResponse(BaseModel):
@@ -141,6 +142,7 @@ async def _sse_generator(
             "timestamp_end": c["timestamp_end"],
             "speaker": c["speaker"],
             "score": c["score"],
+            "audio_file": c.get("audio_file", ""),
         }
         for c in state.get("context", [])
     ]

@@ -104,6 +104,7 @@ async def store_chunks(
         timestamp_start (float), timestamp_end (float),
         confidence_score (float), speaker (str),
         podcast_id (str)  — optional, defaults to "unknown" if absent
+        audio_file (str)  — MP3 filename in audio_cache/, optional, defaults to "" if absent
 
     Returns the number of chunks stored.
     """
@@ -132,6 +133,7 @@ async def store_chunks(
                 "speaker": c.get("speaker", "UNKNOWN"),
                 "user_id": user_id,
                 "podcast_id": c.get("podcast_id", "unknown"),
+                "audio_file": c.get("audio_file", ""),
             }
             for c in chunks_with_meta
         ],

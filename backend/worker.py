@@ -16,6 +16,10 @@ from celery import Celery
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+# Absolute path so the worker's cwd doesn't affect where MP3s are written.
+# Mirrors the AUDIO_DIR anchor used in backend/routers/audio.py.
+_AUDIO_CACHE = str(Path(__file__).parent.parent / "audio_cache")
+
 celery_app = Celery("podcast_worker", broker=REDIS_URL, backend=REDIS_URL)
 
 
@@ -43,15 +47,19 @@ async def _run_pipeline_async(
 
     results = []
     for ep, path in zip(episodes, paths):
+        audio_filename = path.name
         try:
             etl_result = await run_etl(
-                path, source_name=ep.title, user_id=user_id, diarize=diarize, podcast_id=podcast_id
+                path,
+                source_name=ep.title,
+                user_id=user_id,
+                diarize=diarize,
+                podcast_id=podcast_id,
+                audio_file=audio_filename,
             )
             results.append({"title": ep.title, "status": "done", "etl": etl_result})
         except Exception as exc:  # noqa: BLE001
             results.append({"title": ep.title, "status": "error", "error": str(exc)})
-        finally:
-            path.unlink(missing_ok=True)
 
     return {"episodes_processed": len(results), "results": results}
 
@@ -63,7 +71,7 @@ def async_ingest_podcast(
     max_episodes: int = 3,
     title_filter: str | None = None,
     since: str | None = None,
-    dest_dir: str = "/tmp/podcasts",
+    dest_dir: str = _AUDIO_CACHE,
     user_id: str = "public",
     diarize: bool = False,
     podcast_id: str = "unknown",

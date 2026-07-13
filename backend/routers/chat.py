@@ -19,6 +19,7 @@ from backend.agents.graph import MAX_ITERATIONS, expand_query_node, get_graph
 from backend.agents.retrieval import retrieve_node
 from backend.agents.state import AgentState
 from backend.agents.synthesis import stream_synthesis
+from backend.etl.podcast_registry import PODCASTS
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -32,6 +33,7 @@ _streaming_sessions: dict[str, list] = {}
 class ChatRequest(BaseModel):
     query: str
     session_id: str | None = None
+    podcast_filter: str | None = None
 
 
 class SourceRef(BaseModel):
@@ -61,6 +63,19 @@ async def chat(
     if not x_user_id:
         raise HTTPException(status_code=401, detail="X-User-ID header is required.")
 
+    # Validate against the registry only for short registry-key style values.
+    # URL-based filters (ingested via feed_url) contain "://" and must pass through,
+    # because ChromaDB stores the URL itself as podcast_id for those chunks.
+    if (
+        req.podcast_filter is not None
+        and "://" not in req.podcast_filter
+        and req.podcast_filter not in PODCASTS
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown podcast_filter {req.podcast_filter!r}. Valid IDs: {list(PODCASTS)}",
+        )
+
     graph = get_graph()
     init_state: AgentState = {
         "query": req.query,
@@ -71,6 +86,7 @@ async def chat(
         "iteration": 0,
         "messages": [HumanMessage(content=req.query)],
         "user_id": x_user_id,
+        "podcast_filter": req.podcast_filter,
     }
     config = {"configurable": {"thread_id": f"{x_user_id}:{req.session_id or 'default'}"}}
     final = await graph.ainvoke(init_state, config=config)
@@ -85,7 +101,9 @@ async def chat(
 # ── GET /chat/stream ──────────────────────────────────────────────────────────
 
 
-async def _sse_generator(query: str, session_id: str, user_id: str) -> AsyncIterator[str]:
+async def _sse_generator(
+    query: str, session_id: str, user_id: str, podcast_filter: str | None = None
+) -> AsyncIterator[str]:
     session_key = f"{user_id}:{session_id}"
     prior_messages = _streaming_sessions.get(session_key, [])
 
@@ -98,6 +116,7 @@ async def _sse_generator(query: str, session_id: str, user_id: str) -> AsyncIter
         "iteration": 0,
         "messages": prior_messages + [HumanMessage(content=query)],
         "user_id": user_id,
+        "podcast_filter": podcast_filter,
     }
 
     # Run retrieve → evaluate → expand loop (without synthesis)
@@ -146,13 +165,20 @@ async def _sse_generator(query: str, session_id: str, user_id: str) -> AsyncIter
 async def chat_stream(
     q: str,
     session_id: str | None = None,
+    podcast: str | None = None,
     x_user_id: str | None = Header(None, alias="X-User-ID"),
 ) -> StreamingResponse:
     if not x_user_id:
         raise HTTPException(status_code=401, detail="X-User-ID header is required.")
 
+    if podcast is not None and "://" not in podcast and podcast not in PODCASTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown podcast {podcast!r}. Valid IDs: {list(PODCASTS)}",
+        )
+
     return StreamingResponse(
-        _sse_generator(q, session_id or "default", x_user_id),
+        _sse_generator(q, session_id or "default", x_user_id, podcast),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

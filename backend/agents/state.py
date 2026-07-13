@@ -12,3 +12,4 @@ class AgentState(TypedDict):
     iteration: int  # retrieval attempt count (max = MAX_ITERATIONS in graph)
     messages: Annotated[list, add_messages]
     user_id: str  # scopes ChromaDB retrieval to the requesting user
+    podcast_filter: str | None  # when set, restricts retrieval to a single podcast

@@ -65,9 +65,11 @@ def _check_env(diarize: bool) -> None:
 def _import_etl():
     from backend.etl.embeddings import COLLECTION_NAME, get_chroma
     from backend.etl.pipeline import run_etl
-    from backend.etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
+    from backend.etl.podcast_registry import get_podcast
+    from backend.etl.podcast_rss import download_episodes, fetch_episodes
 
-    return fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS
+    huberman_rss = get_podcast("huberman")["rss"]
+    return fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, huberman_rss
 
 
 # ── Already-indexed check ────────────────────────────────────────────────────
@@ -221,6 +223,7 @@ async def run(args: argparse.Namespace) -> None:
                         device=device,
                         diarize=args.diarize,
                         user_id=args.user_id,
+                        podcast_id="huberman",
                     )
                 pbar.set_description(f"[3/3 ✦] {ep.title[:38]}")
                 elapsed = time.monotonic() - ep_start

@@ -11,14 +11,16 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
+from etl.podcast_registry import get_podcast
+from etl.podcast_rss import download_episodes, fetch_episodes
 
 
 async def main(n: int, title_filter: str | None, do_download: bool) -> None:
-    print(f"Fetching RSS: {HUBERMAN_LAB_RSS}\n")
+    rss_url = get_podcast("huberman")["rss"]
+    print(f"Fetching RSS: {rss_url}\n")
 
     episodes = await fetch_episodes(
-        HUBERMAN_LAB_RSS,
+        rss_url,
         max_episodes=n,
         title_filter=title_filter,
     )

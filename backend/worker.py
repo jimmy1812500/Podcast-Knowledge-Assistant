@@ -27,6 +27,7 @@ async def _run_pipeline_async(
     dest_dir: str,
     user_id: str,
     diarize: bool,
+    podcast_id: str = "unknown",
 ) -> dict:
     from backend.etl.pipeline import run_etl
     from backend.etl.podcast_rss import download_episodes, fetch_episodes
@@ -43,7 +44,9 @@ async def _run_pipeline_async(
     results = []
     for ep, path in zip(episodes, paths):
         try:
-            etl_result = await run_etl(path, source_name=ep.title, user_id=user_id, diarize=diarize)
+            etl_result = await run_etl(
+                path, source_name=ep.title, user_id=user_id, diarize=diarize, podcast_id=podcast_id
+            )
             results.append({"title": ep.title, "status": "done", "etl": etl_result})
         except Exception as exc:  # noqa: BLE001
             results.append({"title": ep.title, "status": "error", "error": str(exc)})
@@ -63,6 +66,7 @@ def async_ingest_podcast(
     dest_dir: str = "/tmp/podcasts",
     user_id: str = "public",
     diarize: bool = False,
+    podcast_id: str = "unknown",
 ) -> dict:
     self.update_state(state="PROGRESS", meta={"status": "starting"})
     since_dt = datetime.fromisoformat(since) if since else None
@@ -75,5 +79,6 @@ def async_ingest_podcast(
             dest_dir=dest_dir,
             user_id=user_id,
             diarize=diarize,
+            podcast_id=podcast_id,
         )
     )

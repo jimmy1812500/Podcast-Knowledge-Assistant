@@ -102,7 +102,8 @@ async def store_chunks(
     Each dict must contain:
         chunk_id (str), text (str), source_file (str),
         timestamp_start (float), timestamp_end (float),
-        confidence_score (float), speaker (str)
+        confidence_score (float), speaker (str),
+        podcast_id (str)  — optional, defaults to "unknown" if absent
 
     Returns the number of chunks stored.
     """
@@ -130,6 +131,7 @@ async def store_chunks(
                 "confidence_score": c["confidence_score"],
                 "speaker": c.get("speaker", "UNKNOWN"),
                 "user_id": user_id,
+                "podcast_id": c.get("podcast_id", "unknown"),
             }
             for c in chunks_with_meta
         ],

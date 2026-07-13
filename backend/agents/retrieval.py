@@ -60,17 +60,28 @@ def _detect_speaker_filter(query: str, messages: list | None = None) -> str | No
     return None
 
 
-def _query_chroma_sync(vec: list[float], user_id: str) -> list[dict]:
+def _query_chroma_sync(
+    vec: list[float], user_id: str, podcast_filter: str | None = None
+) -> list[dict]:
     chroma = get_chroma()
     collection = chroma.get_or_create_collection(
         name=COLLECTION_NAME,
         metadata={"hnsw:space": "cosine"},
     )
+    if podcast_filter is not None:
+        where: dict = {
+            "$and": [
+                {"user_id": {"$eq": user_id}},
+                {"podcast_id": {"$eq": podcast_filter}},
+            ]
+        }
+    else:
+        where = {"user_id": {"$eq": user_id}}
     results = collection.query(
         query_embeddings=[vec],
         n_results=TOP_K,
         include=["documents", "metadatas", "distances"],
-        where={"user_id": user_id},
+        where=where,
     )
     context = []
     for doc, meta, dist in zip(
@@ -94,9 +105,10 @@ def _query_chroma_sync(vec: list[float], user_id: str) -> list[dict]:
 async def retrieve_node(state: AgentState) -> dict:
     query = state.get("search_query") or state["query"]
     user_id = state.get("user_id", "public")
+    podcast_filter = state.get("podcast_filter")
     vec = await embed_query(query)
     loop = asyncio.get_running_loop()
-    candidates = await loop.run_in_executor(None, _query_chroma_sync, vec, user_id)
+    candidates = await loop.run_in_executor(None, _query_chroma_sync, vec, user_id, podcast_filter)
 
     # Detect speaker intent from the original query and conversation history.
     # Using state["query"] (not search_query) so rephrasing doesn't drop names.

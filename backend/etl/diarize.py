@@ -44,10 +44,10 @@ def _load_pipeline(hf_token: str):
 
 def _diarize_sync(audio_path: Path, hf_token: str) -> list[SpeakerSegment]:
     pipeline = _load_pipeline(hf_token)
-    annotation = pipeline(str(audio_path))
+    output = pipeline(str(audio_path))
     return [
         SpeakerSegment(start=seg.start, end=seg.end, speaker=label)
-        for seg, _, label in annotation.itertracks(yield_label=True)
+        for seg, _, label in output.speaker_diarization.itertracks(yield_label=True)
     ]
 
 

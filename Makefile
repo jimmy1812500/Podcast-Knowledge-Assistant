@@ -1,5 +1,5 @@
 .PHONY: help install run lint format test precommit-install precommit-run \
-        ingest chroma-up chroma-down chroma-logs clean
+        ingest chroma-up chroma-down chroma-logs chroma-clean clean
 
 PORT ?= 8000
 ARGS ?=
@@ -16,6 +16,7 @@ help:
 	@echo "make chroma-up          start the ChromaDB server via docker compose"
 	@echo "make chroma-down        stop the ChromaDB server"
 	@echo "make chroma-logs        tail the ChromaDB server logs"
+	@echo "make chroma-clean       delete all ingested chunks from ChromaDB"
 	@echo "make clean              remove caches and bytecode"
 
 install:
@@ -55,6 +56,14 @@ chroma-down:
 
 chroma-logs:
 	docker compose logs -f chroma
+
+# Drops the transcription_chunks collection so the next ingest starts fresh.
+chroma-clean:
+	if [ -f backend/.env ]; then set -a; . backend/.env; set +a; fi; uv run python -c "\
+	from backend.etl.embeddings import get_chroma, COLLECTION_NAME; \
+	c = get_chroma(); \
+	c.delete_collection(COLLECTION_NAME) if COLLECTION_NAME in [col.name for col in c.list_collections()] else None; \
+	print(f'Deleted collection: {COLLECTION_NAME}')"
 
 clean:
 	find . -type d -name '__pycache__' -not -path './.venv/*' -exec rm -rf {} +

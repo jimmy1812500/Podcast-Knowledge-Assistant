@@ -1,5 +1,8 @@
 .DS_Store
 backend/chroma_data/*
+
+# Local planning notes
+*implementation_plan*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

@@ -5,6 +5,14 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# AI Agent Skills & Tooling
+.claude/
+.agents/
+.gemini/
+commands/
+plugin.json
+skills-lock.json
+
 # C extensions
 *.so
 

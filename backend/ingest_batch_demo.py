@@ -1,22 +1,16 @@
 """
-Batch ETL ingestion for Huberman Lab 2025-2026 episodes.
+Demo ETL ingestion — single Huberman Lab episode only.
 
-Fetches every episode published between --since and --until, downloads the MP3,
-runs Whisper ASR, splits transcript, embeds with sentence-transformers, and
-upserts into ChromaDB.
+Same pipeline as ingest_batch.py (download MP3, Whisper ASR, split transcript,
+embed with sentence-transformers, upsert into ChromaDB), but hardcoded to fetch
+only DEMO_EPISODE_TITLE below, regardless of --since/--until.
 
-Resume-safe: episodes already in ChromaDB are skipped automatically.
+Resume-safe: episode is skipped if already in ChromaDB.
 
 Usage:
-    python ingest_batch.py                             # 2025-01-01 → today
-    python ingest_batch.py --since 2025-06-01          # from a specific date
-    python ingest_batch.py --until 2025-12-31          # cap at end of 2025
-    python ingest_batch.py --model small               # use a larger Whisper model
-    python ingest_batch.py --dry-run                   # list episodes without processing
-
-Estimated time (base model, Apple Silicon M-series, CPU):
-    ~5-10 min per hour of audio → 157 episodes × ~90 min avg ≈ 100-200 hrs total.
-    Run overnight / across multiple sessions. Each session resumes from where it stopped.
+    python -m backend.ingest_batch_demo                # ingest the demo episode by base Whisper model
+    python -m backend.ingest_batch_demo --dry-run       # confirm the match, no download/ETL
+    python -m backend.ingest_batch_demo --model small   # use a small Whisper model
 """
 
 from __future__ import annotations
@@ -24,52 +18,38 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import subprocess
-import sys
-import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from tqdm import tqdm
 
+# Substring match against episode titles — unique enough to identify the one
+# episode regardless of the "Essentials: " prefix or trailing guest name.
+DEMO_EPISODE_TITLE = "Science of Eating for Health, Fat Loss & Lean Muscle"
+
 # ── Validate env early ───────────────────────────────────────────────────────
 
+
 def _check_env() -> None:
-    # Diarization is disabled in this test script — pyannote's required models
-    # are gated and failing with 403, and running it alongside Whisper wastes CPU.
-    os.environ.pop("HF_TOKEN", None)
+    if not os.environ.get("HF_TOKEN"):
+        print("WARNING: HF_TOKEN is not set — speaker diarization will be skipped.")
+        print("  To enable: accept https://huggingface.co/pyannote/speaker-diarization-3.1")
+        print("  then: export HF_TOKEN=hf_...\n")
+
 
 # ── Lazy imports (after env check) ───────────────────────────────────────────
 
+
 def _import_etl():
-    from etl.embeddings import COLLECTION_NAME, get_chroma
-    from etl.pipeline import run_etl
-    from etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
+    from backend.etl.embeddings import COLLECTION_NAME, get_chroma
+    from backend.etl.pipeline import run_etl
+    from backend.etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
+
     return fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS
 
 
 # ── Already-indexed check ────────────────────────────────────────────────────
-
-def _trim_audio(src: Path, fraction: float = 0.25) -> tuple[Path, float]:
-    """Trim audio to the first `fraction` of its total duration using ffmpeg.
-    Returns (trimmed_path, trimmed_duration_seconds)."""
-    import av
-    with av.open(str(src)) as container:
-        total_secs = container.duration / 1_000_000  # microseconds → seconds
-    trim_secs = total_secs * fraction
-    dest = src.with_stem(src.stem + "_quarter")
-    subprocess.run(
-        [
-            "ffmpeg", "-i", str(src),
-            "-t", str(trim_secs),
-            "-c", "copy",
-            str(dest),
-            "-y", "-loglevel", "error",
-        ],
-        check=True,
-    )
-    return dest, trim_secs
 
 
 def _already_indexed(chroma, collection_name: str, title: str) -> bool:
@@ -88,49 +68,32 @@ def _already_indexed(chroma, collection_name: str, title: str) -> bool:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _fmt_duration(seconds: float) -> str:
     h, rem = divmod(int(seconds), 3600)
     m, s = divmod(rem, 60)
     return f"{h}h {m:02d}m {s:02d}s" if h else f"{m}m {s:02d}s"
+
 
 def _log(msg: str) -> None:
     """Print a line above the tqdm bar without breaking it."""
     tqdm.write(msg)
 
 
-class _Ticker:
-    """Prints elapsed time every 30 s while a slow step is running."""
-    def __init__(self, label: str):
-        self._label = label
-        self._stop = threading.Event()
-        self._t = threading.Thread(target=self._run, daemon=True)
-
-    def _run(self) -> None:
-        start = time.monotonic()
-        while not self._stop.wait(30):
-            elapsed = time.monotonic() - start
-            _log(f"  ↳ {self._label}  still running … {_fmt_duration(elapsed)}")
-
-    def __enter__(self):
-        self._t.start()
-        return self
-
-    def __exit__(self, *_):
-        self._stop.set()
-        self._t.join()
-
-
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
-async def run(args: argparse.Namespace) -> None:
-    fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS = _import_etl()
 
-    since = datetime.fromisoformat(args.since).replace(tzinfo=timezone.utc)
-    until = datetime.fromisoformat(args.until).replace(tzinfo=timezone.utc) if args.until else None
+async def run(args: argparse.Namespace) -> None:
+    fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS = (
+        _import_etl()
+    )
+
+    since = datetime.fromisoformat(args.since).replace(tzinfo=UTC)
+    until = datetime.fromisoformat(args.until).replace(tzinfo=UTC) if args.until else None
     dest = Path(args.dest)
 
-    print(f"\nHuberman Lab batch ingest")
-    print(f"  Range  : {since.date()} → {until.date() if until else 'today'}")
+    print("\nHuberman Lab DEMO ingest (single episode)")
+    print(f"  Match  : {DEMO_EPISODE_TITLE!r}")
     print(f"  Model  : whisper-{args.model}")
     print(f"  Dest   : {dest}")
     if args.dry_run:
@@ -139,12 +102,10 @@ async def run(args: argparse.Namespace) -> None:
 
     # ── Fetch episode list ───────────────────────────────────────────────────
     print("Fetching RSS feed …")
-    episodes = await fetch_episodes(HUBERMAN_LAB_RSS, since=since)
+    episodes = await fetch_episodes(HUBERMAN_LAB_RSS, since=since, title_filter=DEMO_EPISODE_TITLE)
     if until:
         episodes = [ep for ep in episodes if ep.published <= until]
-    TARGET = "Essentials: The Science of Eating for Health, Fat Loss & Lean Muscle"
-    episodes = [ep for ep in episodes if ep.title.startswith(TARGET[:50])]
-    print(f"Found {len(episodes)} episodes in range.\n")
+    print(f"Found {len(episodes)} matching episode(s).\n")
 
     if args.dry_run:
         for i, ep in enumerate(episodes, 1):
@@ -166,7 +127,6 @@ async def run(args: argparse.Namespace) -> None:
         dynamic_ncols=True,
         bar_format="{l_bar}{bar}| {n}/{total} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
     ) as pbar:
-
         for ep in episodes:
             pbar.set_description(ep.title[:45])
             pbar.set_postfix(done=done, skip=skipped, fail=failed)
@@ -200,26 +160,19 @@ async def run(args: argparse.Namespace) -> None:
 
             # ── Step 2 & 3: ETL (ASR + diarize + embed + store) ─────────────
             pbar.set_description(f"[2/3 ◎] {ep.title[:38]}")
-            _log("  ↳ Transcribing (ticker every 30s) …")
             try:
-                with _Ticker("Transcribing"):
-                    result = await run_etl(
-                        path,
-                        source_name=ep.title,
-                        whisper_model=args.model,
-                        chunk_size=500,
-                        overlap=100,
-                    )
+                result = await run_etl(
+                    path,
+                    source_name=ep.title,
+                    whisper_model=args.model,
+                    chunk_size=500,
+                    overlap=100,
+                )
                 pbar.set_description(f"[3/3 ✦] {ep.title[:38]}")
                 elapsed = time.monotonic() - ep_start
                 speakers = ", ".join(result["speakers_found"]) or "UNKNOWN"
-                _log(
-                    f"  ↳ Transcribe  lang={result['language']}  "
-                    f"segs={result['segments']} ✓"
-                )
-                _log(
-                    f"  ↳ Embed       {result['chunks_stored']} chunks stored ✓"
-                )
+                _log(f"  ↳ Transcribe  lang={result['language']}  segs={result['segments']} ✓")
+                _log(f"  ↳ Embed       {result['chunks_stored']} chunks stored ✓")
                 _log(f"  ↳ Speakers    {speakers}")
                 _log(f"  ↳ Time        {_fmt_duration(elapsed)}")
                 done += 1
@@ -244,9 +197,10 @@ async def run(args: argparse.Namespace) -> None:
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Batch-ingest Huberman Lab podcast episodes into ChromaDB.",
+        description=f"Ingest a single demo Huberman Lab episode ({DEMO_EPISODE_TITLE!r}) into ChromaDB.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
@@ -283,6 +237,7 @@ if __name__ == "__main__":
 
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
     except ImportError:
         pass

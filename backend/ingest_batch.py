@@ -8,10 +8,10 @@ upserts into ChromaDB.
 Resume-safe: episodes already in ChromaDB are skipped automatically.
 
 Usage:
-    python ingest_batch.py                             # 2025-01-01 → today
+    python ingest_batch.py                             # 2025-01-01 → today by base Whisper model
     python ingest_batch.py --since 2025-06-01          # from a specific date
     python ingest_batch.py --until 2025-12-31          # cap at end of 2025
-    python ingest_batch.py --model small               # use a larger Whisper model
+    python ingest_batch.py --model small               # use a small Whisper model
     python ingest_batch.py --dry-run                   # list episodes without processing
 
 Estimated time (base model, Apple Silicon M-series, CPU):
@@ -44,9 +44,9 @@ def _check_env() -> None:
 
 
 def _import_etl():
-    from etl.embeddings import COLLECTION_NAME, get_chroma
-    from etl.pipeline import run_etl
-    from etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
+    from backend.etl.embeddings import COLLECTION_NAME, get_chroma
+    from backend.etl.pipeline import run_etl
+    from backend.etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
 
     return fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS
 

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import chat, podcast, upload
+from backend.routers import audio, chat, podcast, upload
 
 app = FastAPI(
     title="Multi-Modal Knowledge Agent",
@@ -15,6 +15,7 @@ app = FastAPI(
 app.include_router(upload.router)
 app.include_router(podcast.router)
 app.include_router(chat.router)
+app.include_router(audio.router)
 
 _STATIC = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=_STATIC), name="static")

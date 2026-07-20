@@ -36,6 +36,7 @@ def _query_chroma_sync(vec: list[float]) -> list[dict]:
             "timestamp_end": float(meta.get("timestamp_end", 0.0)),
             "speaker": meta.get("speaker", "UNKNOWN"),
             "score": round(1.0 - float(dist), 4),
+            "audio_id": meta.get("audio_id") or None,
         })
     return context
 

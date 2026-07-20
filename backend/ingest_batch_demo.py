@@ -42,11 +42,20 @@ def _check_env() -> None:
 
 
 def _import_etl():
+    from backend.etl.audio_store import save_audio
     from backend.etl.embeddings import COLLECTION_NAME, get_chroma
     from backend.etl.pipeline import run_etl
     from backend.etl.podcast_rss import HUBERMAN_LAB_RSS, download_episodes, fetch_episodes
 
-    return fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS
+    return (
+        fetch_episodes,
+        download_episodes,
+        run_etl,
+        get_chroma,
+        COLLECTION_NAME,
+        HUBERMAN_LAB_RSS,
+        save_audio,
+    )
 
 
 # ── Already-indexed check ────────────────────────────────────────────────────
@@ -84,9 +93,15 @@ def _log(msg: str) -> None:
 
 
 async def run(args: argparse.Namespace) -> None:
-    fetch_episodes, download_episodes, run_etl, get_chroma, COLLECTION_NAME, HUBERMAN_LAB_RSS = (
-        _import_etl()
-    )
+    (
+        fetch_episodes,
+        download_episodes,
+        run_etl,
+        get_chroma,
+        COLLECTION_NAME,
+        HUBERMAN_LAB_RSS,
+        save_audio,
+    ) = _import_etl()
 
     since = datetime.fromisoformat(args.since).replace(tzinfo=UTC)
     until = datetime.fromisoformat(args.until).replace(tzinfo=UTC) if args.until else None
@@ -167,6 +182,7 @@ async def run(args: argparse.Namespace) -> None:
                     whisper_model=args.model,
                     chunk_size=500,
                     overlap=100,
+                    audio_id=ep.episode_id,
                 )
                 pbar.set_description(f"[3/3 ✦] {ep.title[:38]}")
                 elapsed = time.monotonic() - ep_start
@@ -176,10 +192,10 @@ async def run(args: argparse.Namespace) -> None:
                 _log(f"  ↳ Speakers    {speakers}")
                 _log(f"  ↳ Time        {_fmt_duration(elapsed)}")
                 done += 1
+                save_audio(path, ep.episode_id)
             except Exception as exc:
                 _log(f"  ↳ ETL         FAILED: {exc}")
                 failed += 1
-            finally:
                 path.unlink(missing_ok=True)
 
             pbar.set_postfix(done=done, skip=skipped, fail=failed)

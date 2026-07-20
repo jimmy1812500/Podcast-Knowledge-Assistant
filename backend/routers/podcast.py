@@ -16,6 +16,7 @@ from typing import Literal
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
 
+from backend.etl.audio_store import save_audio
 from backend.etl.pipeline import run_etl
 from backend.etl.podcast_rss import HUBERMAN_LAB_RSS, Episode, download_episodes, fetch_episodes
 
@@ -99,14 +100,14 @@ async def _run_pipeline(job_id: str, req: PodcastIngestRequest) -> None:
         job["status"] = "processing"
         for i, (ep, path) in enumerate(zip(episodes, paths)):
             try:
-                etl_result = await run_etl(path, source_name=ep.title)
+                etl_result = await run_etl(path, source_name=ep.title, audio_id=ep.episode_id)
                 job["episodes"][i]["etl"] = etl_result
                 job["episodes"][i]["status"] = "done"
+                save_audio(path, ep.episode_id)
             except Exception as ep_exc:  # noqa: BLE001
                 job["episodes"][i]["status"] = "error"
                 job["episodes"][i]["error"] = str(ep_exc)
-            finally:
-                path.unlink(missing_ok=True)  # free disk space after ETL
+                path.unlink(missing_ok=True)
 
         job["status"] = "done"
 

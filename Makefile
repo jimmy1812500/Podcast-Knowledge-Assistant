@@ -1,4 +1,4 @@
-.PHONY: help install run lint format test precommit-install precommit-run \
+.PHONY: help install run lint format test test-frontend precommit-install precommit-run \
         ingest chroma-up chroma-down chroma-logs chroma-clean clean
 
 PORT ?= 8000
@@ -10,6 +10,7 @@ help:
 	@echo "make lint               check code style with ruff"
 	@echo "make format             auto-format code with ruff"
 	@echo "make test               run the test suite with pytest"
+	@echo "make test-frontend      run the plain-Node frontend regression tests"
 	@echo "make precommit-install  install git pre-commit hooks"
 	@echo "make precommit-run      run pre-commit hooks against all files"
 	@echo "make ingest ARGS=...    run the batch podcast ingestion script"
@@ -33,6 +34,9 @@ format:
 
 test:
 	uv run pytest
+
+test-frontend:
+	for f in tests/frontend/test_*.js; do node "$$f" || exit 1; done
 
 precommit-install:
 	uv run pre-commit install

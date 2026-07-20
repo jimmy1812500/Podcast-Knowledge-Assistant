@@ -27,6 +27,7 @@ def _build_chunk_meta(
     transcript: Transcript,
     source: str,
     speaker_segs: list[SpeakerSegment],
+    audio_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Build ChromaDB-ready dicts by mapping each chunk's character range to:
@@ -68,6 +69,7 @@ def _build_chunk_meta(
                 "timestamp_end":   round(t_end, 2),
                 "confidence_score": round(confidence, 4),
                 "speaker": speaker,
+                "audio_id": audio_id,
             }
         )
     return result
@@ -79,6 +81,7 @@ async def run_etl(
     whisper_model: str = "base",
     chunk_size: int = 500,
     overlap: int = 100,
+    audio_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Full ETL pipeline on a single audio file.
@@ -103,7 +106,7 @@ async def run_etl(
     speaker_segs = await _safe_diarize(audio_path)
 
     chunks     = split_text(transcript.text, chunk_size=chunk_size, overlap=overlap)
-    chunk_meta = _build_chunk_meta(chunks, transcript, source, speaker_segs)
+    chunk_meta = _build_chunk_meta(chunks, transcript, source, speaker_segs, audio_id=audio_id)
     stored     = await store_chunks(chunk_meta)
 
     speakers_found = sorted({c["speaker"] for c in chunk_meta} - {"UNKNOWN"})

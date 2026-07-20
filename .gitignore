@@ -1,5 +1,9 @@
 .DS_Store
 backend/chroma_data/*
+audio_library/*
+.mcp.json
+chroma_data/
+tests/
 
 # Local planning notes
 *implementation_plan*

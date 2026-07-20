@@ -4,12 +4,14 @@ POST /upload — multipart audio file → ETL pipeline (ASR + embed + ChromaDB).
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from backend.etl.audio_store import save_audio
 from backend.etl.pipeline import run_etl
 
 router = APIRouter(tags=["upload"])
@@ -56,7 +58,9 @@ async def upload_audio(file: UploadFile) -> UploadResult:
 
     suffix = Path(file.filename or "audio.mp3").suffix or ".mp3"
 
-    # Stream upload to a temp file — avoids holding the full file in memory
+    # Stream upload to a temp file — avoids holding the full file in memory.
+    # Hash content as we go so re-uploading the same file dedupes by audio_id.
+    content_hash = hashlib.sha1()
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp_path = Path(tmp.name)
         total = 0
@@ -66,10 +70,15 @@ async def upload_audio(file: UploadFile) -> UploadResult:
                 tmp_path.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="File exceeds 500 MB limit.")
             tmp.write(chunk)
+            content_hash.update(chunk)
+
+    audio_id = content_hash.hexdigest()[:12]
 
     try:
-        result = await run_etl(tmp_path, source_name=file.filename)
-    finally:
+        result = await run_etl(tmp_path, source_name=file.filename, audio_id=audio_id)
+        save_audio(tmp_path, audio_id)
+    except Exception:
         tmp_path.unlink(missing_ok=True)
+        raise
 
     return UploadResult(**result)

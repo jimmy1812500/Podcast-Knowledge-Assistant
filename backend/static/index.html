@@ -114,8 +114,38 @@
       color: #9ca3af;
       margin-top: 4px;
       display: flex;
+      align-items: center;
       gap: 12px;
       flex-wrap: wrap;
+    }
+    .play-btn {
+      border: 1px solid #d1d5db;
+      background: #fff;
+      color: #4f46e5;
+      border-radius: 999px;
+      width: 22px;
+      height: 22px;
+      font-size: 0.7rem;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .play-btn:hover:not(:disabled) { background: #eef2ff; }
+    .play-btn:disabled {
+      border-color: #e5e7eb;
+      color: #d1d5db;
+      cursor: not-allowed;
+    }
+    .play-btn.unavailable {
+      color: #9ca3af;
+      font-size: 0.62rem;
+      width: auto;
+      padding: 0 6px;
+      border-radius: 999px;
     }
     .score-bar {
       display: inline-block;
@@ -225,6 +255,8 @@
   <button id="send">Send</button>
 </div>
 
+<audio id="shared-audio" style="display:none"></audio>
+
 <script>
   const messagesEl = document.getElementById('messages');
   const queryEl    = document.getElementById('query');
@@ -274,10 +306,16 @@
       const pct = Math.round((s.score || 0) * 100);
       const ts  = `${fmtTime(s.timestamp_start)} – ${fmtTime(s.timestamp_end)}`;
       const snippet = escHtml(s.text.slice(0, 120)) + (s.text.length > 120 ? '…' : '');
+      const playBtn = s.audio_id
+        ? `<button class="play-btn" data-audio-id="${escHtml(s.audio_id)}"
+             data-start="${s.timestamp_start}" data-end="${s.timestamp_end}"
+             title="Play this clip">▶</button>`
+        : `<button class="play-btn" disabled title="No audio available for this source">▶</button>`;
       return `
         <div class="source-card">
           ${snippet}
           <div class="source-meta">
+            ${playBtn}
             <span>🎙 ${escHtml(shortTitle(s.source))}</span>
             <span>⏱ ${ts}</span>
             <span><span class="score-bar"><span class="score-fill" style="width:${pct}%"></span></span> ${pct}%</span>
@@ -362,6 +400,84 @@
 
   sendBtn.addEventListener('click', send);
   queryEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) send(); });
+
+  // ── Clip playback (shared <audio>, lazy-fetched per source card) ──────────
+  const sharedAudio = document.getElementById('shared-audio');
+  let activeBtn = null;
+  let clickToken = 0; // bumped on every click; lets a stale in-flight fetch detect it's been superseded
+
+  function resetBtn(btn) {
+    if (btn && !btn.classList.contains('unavailable')) btn.textContent = '▶';
+  }
+
+  sharedAudio.addEventListener('pause', () => resetBtn(activeBtn));
+  sharedAudio.addEventListener('ended', () => resetBtn(activeBtn));
+
+  messagesEl.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.play-btn');
+    if (!btn || btn.disabled) return;
+
+    const audioId = btn.dataset.audioId;
+    if (!audioId) return;
+
+    // Toggle off if this card's clip is already playing
+    if (btn === activeBtn && !sharedAudio.paused) {
+      sharedAudio.pause();
+      return;
+    }
+
+    resetBtn(activeBtn);
+    sharedAudio.pause();
+    activeBtn = btn;
+    const myClick = ++clickToken;
+    const supersededByLaterClick = () => myClick !== clickToken;
+
+    if (btn.dataset.clipUrl) {
+      sharedAudio.src = btn.dataset.clipUrl;
+      btn.textContent = '⏸';
+      sharedAudio.play();
+      return;
+    }
+
+    btn.textContent = '…';
+    btn.disabled = true;
+    try {
+      const { start, end } = btn.dataset;
+      const resp = await fetch(`/audio/${audioId}/clip?start=${start}&end=${end}`);
+      if (supersededByLaterClick()) {
+        // A different card was clicked while this fetch was in flight — leave
+        // this button clickable again rather than applying stale UI state.
+        btn.textContent = '▶';
+        btn.disabled = false;
+        return;
+      }
+
+      if (resp.status === 404) {
+        btn.textContent = 'unavailable';
+        btn.classList.add('unavailable');
+        btn.title = 'Audio no longer available';
+        return;
+      }
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+      const blob = await resp.blob();
+      if (supersededByLaterClick()) {
+        btn.textContent = '▶';
+        btn.disabled = false;
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      btn.dataset.clipUrl = url;
+      sharedAudio.src = url;
+      btn.disabled = false;
+      btn.textContent = '⏸';
+      await sharedAudio.play();
+    } catch (err) {
+      btn.textContent = '▶';
+      btn.disabled = false;
+    }
+  });
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function escHtml(s) {

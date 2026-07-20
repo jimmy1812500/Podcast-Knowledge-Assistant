@@ -128,6 +128,7 @@ async def store_chunks(
                 "timestamp_end":    c["timestamp_end"],
                 "confidence_score": c["confidence_score"],
                 "speaker":          c.get("speaker", "UNKNOWN"),
+                "audio_id":         c.get("audio_id") or "",
             }
             for c in chunks_with_meta
         ],
